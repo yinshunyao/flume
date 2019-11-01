@@ -71,6 +71,8 @@ public class HiveSink extends AbstractSink implements Configurable, BatchSizeSup
   private String database;
   private String table;
   private List<String> partitionVals;
+  // 考虑源数据的分区索引，不使用本地时间生成，小于0时表示不用元数据生成分区信息
+  private int partitionIndex = -1;
   private Integer txnsPerBatchAsk;
   private Integer batchSize;
   private Integer maxOpenConnections;
@@ -127,6 +129,7 @@ public class HiveSink extends AbstractSink implements Configurable, BatchSizeSup
     String partitions = context.getString(Config.HIVE_PARTITION);
     if (partitions != null) {
       partitionVals = Arrays.asList(partitions.split(","));
+      partitionIndex = context.getInteger(Config.HIVE_PARTITION_INDEX, -1);
     }
 
 
@@ -289,6 +292,14 @@ public class HiveSink extends AbstractSink implements Configurable, BatchSizeSup
         }
 
         //1) Create end point by substituting place holders
+//        HiveEndPoint endPoint = makeEndPoint(metaStoreUri, database, table,
+//                partitionVals, event.getHeaders(), timeZone,
+//                needRounding, roundUnit, roundValue, useLocalTime);
+
+        // 重新构造 endPoint，获取元数据的关键字来构造分区
+        if(partitionIndex >= 0){
+          LOG.warn("接收到数据：{}", event);
+        }
         HiveEndPoint endPoint = makeEndPoint(metaStoreUri, database, table,
                 partitionVals, event.getHeaders(), timeZone,
                 needRounding, roundUnit, roundValue, useLocalTime);

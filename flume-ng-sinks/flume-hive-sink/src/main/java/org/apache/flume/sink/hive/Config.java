@@ -38,4 +38,6 @@ public class Config {
   public static final String SECOND = "second";
   public static final String ROUND_VALUE = "roundValue";
   public static final String SERIALIZER = "serializer";
+  // 配置从数据源第几列的值生成hive分区
+  public static final String HIVE_PARTITION_INDEX = "hive.partition.index";
 }
