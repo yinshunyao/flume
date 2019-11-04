@@ -44,6 +44,12 @@ public class HiveDelimitedTextSerializer implements HiveEventSerializer  {
   private String[] fieldToColMapping = null;
   private Character serdeSeparator = null;
 
+  //返回间隔符
+  @Override
+  public String getDelimiter(){
+    return delimiter;
+  }
+
   @Override
   public void write(TransactionBatch txnBatch, Event e)
           throws StreamingException, IOException, InterruptedException {

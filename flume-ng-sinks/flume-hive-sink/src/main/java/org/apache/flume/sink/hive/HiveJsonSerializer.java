@@ -54,9 +54,13 @@ public class HiveJsonSerializer implements HiveEventSerializer  {
     return new StrictJsonWriter(endPoint);
   }
 
+
   @Override
-  public void configure(Context context) {
-    return;
+  public String getDelimiter(){
+    return ",";
   }
+
+  @Override
+  public void configure(Context context) {}
 
 }

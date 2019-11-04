@@ -18,6 +18,7 @@
 
 package org.apache.flume.sink.hive;
 
+import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.conf.Configurable;
 import org.apache.hive.hcatalog.streaming.HiveEndPoint;
@@ -38,4 +39,7 @@ public interface HiveEventSerializer extends Configurable {
   RecordWriter createRecordWriter(HiveEndPoint endPoint)
           throws StreamingException, IOException, ClassNotFoundException;
 
+  public String getDelimiter();
+
+    void configure(Context context);
 }

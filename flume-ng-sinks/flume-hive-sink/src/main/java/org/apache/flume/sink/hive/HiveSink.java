@@ -36,15 +36,10 @@ import org.apache.hive.hcatalog.streaming.HiveEndPoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Calendar;
-import java.util.List;
-import java.util.Map;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.TimeZone;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -70,6 +65,10 @@ public class HiveSink extends AbstractSink implements Configurable {
   private String database;
   private String table;
   private List<String> partitionVals;
+  // 考虑源数据的分区索引，不使用本地时间生成，小于0时表示不用元数据生成分区信息
+  private int partitionIndex = -1;
+  // 自定义时间字符串格式，默认为 2016-08-02 21:02:03.0
+  private String partitionStyle = "yyy-MM-dd HH:mm:ss.SSS";
   private Integer txnsPerBatchAsk;
   private Integer batchSize;
   private Integer maxOpenConnections;
@@ -126,6 +125,12 @@ public class HiveSink extends AbstractSink implements Configurable {
     String partitions = context.getString(Config.HIVE_PARTITION);
     if (partitions != null) {
       partitionVals = Arrays.asList(partitions.split(","));
+      partitionIndex = context.getInteger(Config.HIVE_PARTITION_INDEX, -1);
+      String partitionStyle_temp = context.getString(Config.HIVE_PARTITION_SRC_STYLE);
+      if (partitionStyle_temp != null){
+          partitionStyle = partitionStyle_temp;
+      }
+      LOG.info("配置分片源数据索引需要为：{},源数据格式为：{}", partitionIndex, partitionStyle);
     }
 
 
@@ -275,7 +280,7 @@ public class HiveSink extends AbstractSink implements Configurable {
 
   // Drains one batch of events from Channel into Hive
   private int drainOneBatch(Channel channel)
-          throws HiveWriter.Failure, InterruptedException {
+          throws HiveWriter.Failure, InterruptedException, ParseException {
     int txnEventCount = 0;
     try {
       Map<HiveEndPoint,HiveWriter> activeWriters = Maps.newHashMap();
@@ -286,10 +291,33 @@ public class HiveSink extends AbstractSink implements Configurable {
           break;
         }
 
-        //1) Create end point by substituting place holders
-        HiveEndPoint endPoint = makeEndPoint(metaStoreUri, database, table,
-                partitionVals, event.getHeaders(), timeZone,
-                needRounding, roundUnit, roundValue, useLocalTime);
+          HiveEndPoint endPoint;
+
+        // 重新构造 endPoint，获取元数据的关键字来构造分区
+        if(partitionIndex >= 0){
+            // 截取值
+            String datas =  new String(event.getBody());
+            // 解析索引列的值
+            String data = datas.split(serializer.getDelimiter())[partitionIndex];
+            // 去掉双引号
+            data = data.replaceAll("\"", "");
+            //按照时间戳取  2016-08-02 21:02:03.0 ，按照时间关键字截取
+            try{
+                endPoint = makeEndPointGt(metaStoreUri, database, table,
+                        partitionVals, event.getHeaders(), timeZone,
+                        needRounding, roundUnit, roundValue, useLocalTime, new SimpleDateFormat(partitionStyle).parse(data));
+            }catch (Exception e){
+                LOG.error("生成{}的endpoint发生异常：{}", data, e);
+                continue;
+            }
+            LOG.info("接收到数据关键字：{}, endpint:{}", data, endPoint);
+        }else {
+            //1) Create end point by substituting place holders
+            endPoint = makeEndPoint(metaStoreUri, database, table,
+                    partitionVals, event.getHeaders(), timeZone,
+                    needRounding, roundUnit, roundValue, useLocalTime);
+        }
+
 
         //2) Create or reuse Writer
         HiveWriter writer = getOrCreateWriter(activeWriters, endPoint);
@@ -381,6 +409,32 @@ public class HiveSink extends AbstractSink implements Configurable {
     }
     return new HiveEndPoint(metaStoreUri, database, table, realPartVals);
   }
+
+    // 国铁电气定制hive分区表
+    private HiveEndPoint makeEndPointGt(String metaStoreUri, String database, String table,
+                                        List<String> partVals, Map<String, String> headers,
+                                        TimeZone timeZone, boolean needRounding,
+                                        int roundUnit, Integer roundValue,
+                                        boolean useLocalTime,
+                                      Date date)  {
+
+        if (partVals == null) {
+            return new HiveEndPoint(metaStoreUri, database, table, null);
+        }
+
+        ArrayList<String> realPartVals = Lists.newArrayList();
+        for (String partVal : partVals) {
+            // 如果包含时间戳，按照定制化策略 ，至少包含年、月、日分片
+            if (partVal.contains("yyyy") || partVal.contains("MM") || partVal.contains("dd")){
+                realPartVals.add(new SimpleDateFormat(partVal).format(date.getTime()));
+            }else{
+                realPartVals.add(BucketPath.escapeString(partVal, headers, timeZone,
+                        needRounding, roundUnit, roundValue, useLocalTime));
+
+            }
+        }
+        return new HiveEndPoint(metaStoreUri, database, table, realPartVals);
+    }
 
   /**
    * Locate writer that has not been used for longest time and retire it
@@ -498,6 +552,7 @@ public class HiveSink extends AbstractSink implements Configurable {
     super.start();
     setupHeartBeatTimer();
     LOG.info(getName() + ": Hive Sink {} started", getName() );
+    LOG.info("国铁定制版本");
   }
 
   private void setupHeartBeatTimer() {
